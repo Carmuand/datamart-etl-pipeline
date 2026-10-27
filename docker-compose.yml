@@ -1,0 +1,80 @@
+x-airflow-common: &airflow-common
+  image: ${AIRFLOW_IMAGE_NAME:-apache/airflow:2.7.1-python3.10}
+  environment:
+    AIRFLOW__CORE__EXECUTOR: LocalExecutor
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${POSTGRES_METADATA_USER}:${POSTGRES_METADATA_PASSWORD}@postgres-metadata/${POSTGRES_METADATA_DB}
+    AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW_FERNET_KEY}
+    AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
+    AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: 'true'
+    AIRFLOW_CONN_WAREHOUSE_DB: ${AIRFLOW_CONN_WAREHOUSE_DB}
+    AIRFLOW_VAR_SALES_CSV_PATH: ${AIRFLOW_VAR_SALES_CSV_PATH}
+    AIRFLOW_VAR_BATCH_SIZE: ${AIRFLOW_VAR_BATCH_SIZE}
+    AIRFLOW_VAR_MIN_VALID_PRICE: ${AIRFLOW_VAR_MIN_VALID_PRICE}
+    AIRFLOW_VAR_TARGET_TIMEZONE: ${AIRFLOW_VAR_TARGET_TIMEZONE}
+  volumes:
+    - ./dags:/opt/airflow/dags
+    - ./include:/opt/airflow/include
+    - ./scripts:/opt/airflow/scripts
+    - ./data:/opt/airflow/data
+    - ./logs:/opt/airflow/logs
+  user: "${AIRFLOW_UID:-50000}:0"
+  depends_on:
+    postgres-metadata:
+      condition: service_healthy
+
+services:
+  postgres-metadata:
+    image: postgres:13
+    environment:
+      POSTGRES_USER: ${POSTGRES_METADATA_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_METADATA_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_METADATA_DB}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_METADATA_USER} -d ${POSTGRES_METADATA_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  postgres-dw:
+    image: postgres:13
+    environment:
+      POSTGRES_USER: ${POSTGRES_DW_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_DW_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DW_DB}
+    ports:
+      - "${POSTGRES_DW_PORT:-5433}:5432"
+    volumes:
+      - ./sql/ddl/01_schema.sql:/docker-entrypoint-initdb.d/01_schema.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_DW_USER} -d ${POSTGRES_DW_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  airflow-webserver:
+    <<: *airflow-common
+    command: webserver
+    ports:
+      - "8080:8080"
+    restart: always
+
+  airflow-scheduler:
+    <<: *airflow-common
+    command: bash /opt/airflow/scripts/airflow-init.sh
+    restart: always
+
+  ejecutar-consultas:
+    image: postgres:13
+    environment:
+      PGPASSWORD: ${POSTGRES_DW_PASSWORD:-dw_secure_pass}
+    volumes:
+      - ./sql/queries:/opt/queries
+    command: >
+      bash -c "
+      echo 'Esperando a que la base de datos procese...' &&
+      sleep 10 &&
+      psql -h postgres-dw -U ${POSTGRES_DW_USER:-dw_admin} -d ${POSTGRES_DW_DB:-datamart_dw} -f /opt/queries/validaciones_negocio.sql > /opt/queries/resultados_de_negocio.txt &&
+      echo 'Consultas ejecutadas con éxito de forma automática.'"
+    depends_on:
+      postgres-dw:
+        condition: service_healthy

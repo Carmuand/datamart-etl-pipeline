@@ -1,0 +1,9 @@
+.env
+logs/
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+.DS_Store
+# El CSV crudo pesa mucho; se versiona solo una muestra (data/seeds/)
+data/raw/*
+!data/raw/.gitkeep

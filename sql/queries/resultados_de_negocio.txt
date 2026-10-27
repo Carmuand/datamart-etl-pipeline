@@ -1,0 +1,33 @@
+ year | month | month_name | revenue_ventas_global | revenue_devoluciones_global | ventas_netas_consolidadas 
+------+-------+------------+-----------------------+-----------------------------+---------------------------
+(0 rows)
+
+ category | revenue_bruto_ventas | porcentaje_devolucion_sobre_revenue 
+----------+----------------------+-------------------------------------
+(0 rows)
+
+ product_code | description_canonical | revenue_neto_total 
+--------------+-----------------------+--------------------
+(0 rows)
+
+ product_code | description_canonical | tasa_devolucion_por_unidades 
+--------------+-----------------------+------------------------------
+(0 rows)
+
+ country_name | total_ordenes_de_venta | ticket_promedio_venta 
+--------------+------------------------+-----------------------
+(0 rows)
+
+ customer_type | numero_total_de_facturas | promedio_unidades_por_item | gasto_promedio_por_factura 
+---------------+--------------------------+----------------------------+----------------------------
+(0 rows)
+
+ product_code | variaciones_de_descripcion 
+--------------+----------------------------
+(0 rows)
+
+ total_codigos_unicos_sistema_maestro 
+--------------------------------------
+                                    0
+(1 row)
+
