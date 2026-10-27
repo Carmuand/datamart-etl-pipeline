@@ -17,8 +17,8 @@ def run_etl_pipeline(file_path, source_name):
         
     print(f"Leyendo archivo real desde la ruta: {file_path}")
     
-    # 3. Lectura veloz controlando codificación problemática de Kaggle
-    df = pd.read_csv(file_path, encoding='unicode_escape', engine='python', on_bad_lines='skip', nrows=5000)
+    # 3. Lectura veloz de todo el dataset (se remueve nrows=5000 para cargar el volumen real de datos)
+    df = pd.read_csv(file_path, encoding='unicode_escape', engine='python', on_bad_lines='skip')
     
     if df.empty:
         print(f"El archivo {source_name} no tiene registros procesables o está vacío.")
@@ -52,16 +52,22 @@ def run_etl_pipeline(file_path, source_name):
         if country_clean:
             hook.run("INSERT INTO dim_country (country_name) VALUES (%s) ON CONFLICT (country_name) DO NOTHING;", parameters=(country_clean,))
     
-    # Ingestar Clientes (Evitando conflictos de clave primaria)
-    df['customer_id'] = df['customer_id'].fillna('GENERICO_DATA_MART').astype(str).str.strip()
+    # Ingestar Clientes (Limpieza de decimales float .0 y asignación de cliente anónimo)
+    cust_numeric = pd.to_numeric(df['customer_id'], errors='coerce')
+    df['customer_id'] = np.where(
+        cust_numeric.isna(),
+        'GENERICO_DATA_MART',
+        cust_numeric.astype('Int64').astype(str)
+    )
     df['customer_type'] = np.where(df['customer_id'] == 'GENERICO_DATA_MART', 'ANÓNIMO', 'IDENTIFICADO')
+    
     unique_customers = df[['customer_id', 'customer_type']].drop_duplicates(subset=['customer_id'])
     for _, row_cust in unique_customers.iterrows():
         hook.run("INSERT INTO dim_customer (customer_id, customer_type) VALUES (%s, %s) ON CONFLICT (customer_id) DO NOTHING;", 
                  parameters=(row_cust['customer_id'], row_cust['customer_type']))
     
     # Ingestar Productos
-    df['description'] = df['description'].fillna('SIN DESCRIPCION').str.upper().str.strip()
+    df['description'] = df['description'].fillna('SIN DESCRIPCION').astype(str).str.upper().str.strip()
     df['product_code'] = df['product_code'].astype(str).str.upper().str.strip()
     df['category'] = np.where(df['description'].str.contains('WOODEN|CANDLE|STORAGE|HOLDER', na=False), 'Hogar / Decoración', 'Otros')
     unique_products = df[['product_code', 'description', 'category']].rename(columns={'description': 'description_canonical'}).drop_duplicates(subset=['product_code'])
@@ -92,7 +98,6 @@ def run_etl_pipeline(file_path, source_name):
     sales_df = df[(df['quantity'] > 0) & (~df['invoice_no'].str.upper().str.startswith('C', na=False))]
     if not sales_df.empty:
         sales_to_insert = sales_df[['invoice_no', 'product_code', 'customer_id', 'country_id', 'date_id', 'quantity', 'unit_price', 'revenue_bruto', 'source_file']]
-        # Guardar en base de datos de manera masiva y limpia
         sales_to_insert.to_sql('fact_sales', con=engine, if_exists='append', index=False, method='multi')
         
     # Segmentar e Ingestar masivamente Devoluciones a fact_returns

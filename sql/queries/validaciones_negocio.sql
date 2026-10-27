@@ -1,20 +1,30 @@
 -- ============================================================================
 -- PRUEBA DE DESEMPEÑO - DATAMART S.A.S.
--- ENTREGABLE: CONSULTAS SQL DE VALIDACIÓN (SECCIÓN 7)
+-- ENTREGABLE: CONSULTAS SQL DE VALIDACIÓN (SECCIÓN 7) - OPTIMIZADO
 -- ============================================================================
 
 -- 1. Evolución mensual de las ventas netas (Revenue Ventas - Revenue Devoluciones)
--- Unifica los flujos históricos y diarios convirtiendo todo a una base monetaria comparable
+-- Corregido mediante CTEs independientes para evitar duplicación por producto cartesiano en JOINs múltiples
+WITH monthly_sales AS (
+    SELECT date_id, SUM(revenue_bruto) AS rev_ventas
+    FROM fact_sales
+    GROUP BY date_id
+),
+monthly_returns AS (
+    SELECT date_id, SUM(revenue_bruto) AS rev_devoluciones
+    FROM fact_returns
+    GROUP BY date_id
+)
 SELECT 
     d.year,
     d.month,
     d.month_name,
-    COALESCE(SUM(s.revenue_bruto), 0) AS revenue_ventas_global,
-    COALESCE(SUM(r.revenue_bruto), 0) AS revenue_devoluciones_global,
-    (COALESCE(SUM(s.revenue_bruto), 0) - COALESCE(SUM(r.revenue_bruto), 0)) AS ventas_netas_consolidadas
+    COALESCE(SUM(s.rev_ventas), 0) AS revenue_ventas_global,
+    COALESCE(SUM(r.rev_devoluciones), 0) AS revenue_devoluciones_global,
+    (COALESCE(SUM(s.rev_ventas), 0) - COALESCE(SUM(r.rev_devoluciones), 0)) AS ventas_netas_consolidadas
 FROM dim_date d
-LEFT JOIN fact_sales s ON d.date_id = s.date_id
-LEFT JOIN fact_returns r ON d.date_id = r.date_id
+LEFT JOIN monthly_sales s ON d.date_id = s.date_id
+LEFT JOIN monthly_returns r ON d.date_id = r.date_id
 GROUP BY d.year, d.month, d.month_name
 ORDER BY d.year ASC, d.month ASC;
 
@@ -31,6 +41,7 @@ JOIN fact_sales s ON TRIM(p.product_code) = TRIM(s.product_code)
 LEFT JOIN fact_returns r ON TRIM(p.product_code) = TRIM(r.product_code)
 GROUP BY TRIM(p.category)
 ORDER BY revenue_bruto_ventas DESC;
+
 
 -- 3. Top 10 productos con mayor revenue neto y Top 10 con mayor tasa de devolución
 -- Subconsulta A: Top 10 Revenue Neto General
@@ -62,10 +73,11 @@ LIMIT 10;
 
 
 -- 4. Concentración de transacciones por país y variación del ticket promedio de venta
+-- Corregido para calcular el ticket promedio real por factura (Suma total / Órdenes distintas)
 SELECT 
     c.country_name,
     COUNT(DISTINCT s.invoice_no) AS total_ordenes_de_venta,
-    ROUND(AVG(s.revenue_bruto), 2) AS ticket_promedio_venta
+    ROUND(SUM(s.revenue_bruto) / NULLIF(COUNT(DISTINCT s.invoice_no), 0), 2) AS ticket_promedio_venta
 FROM fact_sales s
 JOIN dim_country c ON s.country_id = c.country_id
 GROUP BY c.country_name
@@ -77,7 +89,7 @@ SELECT
     c.customer_type,
     COUNT(DISTINCT s.invoice_no) AS numero_total_de_facturas,
     ROUND(AVG(s.quantity), 2) AS promedio_unidades_por_item,
-    ROUND(SUM(s.revenue_bruto) / COUNT(DISTINCT s.invoice_no), 2) AS gasto_promedio_por_factura
+    ROUND(SUM(s.revenue_bruto) / NULLIF(COUNT(DISTINCT s.invoice_no), 0), 2) AS gasto_promedio_por_factura
 FROM fact_sales s
 JOIN dim_customer c ON s.customer_id = c.customer_id
 GROUP BY c.customer_type;
@@ -94,4 +106,3 @@ HAVING COUNT(DISTINCT description_canonical) > 1;
 
 -- Parte B: Métrica de control del volumen total del inventario operacional de DataMart
 SELECT COUNT(DISTINCT product_code) AS total_codigos_unicos_sistema_maestro FROM dim_product;
-

@@ -11,6 +11,7 @@ x-airflow-common: &airflow-common
     AIRFLOW_VAR_BATCH_SIZE: ${AIRFLOW_VAR_BATCH_SIZE}
     AIRFLOW_VAR_MIN_VALID_PRICE: ${AIRFLOW_VAR_MIN_VALID_PRICE}
     AIRFLOW_VAR_TARGET_TIMEZONE: ${AIRFLOW_VAR_TARGET_TIMEZONE}
+    AIRFLOW__WEBSERVER__WEB_SERVER_WORKER_TIMEOUT: "300"
   volumes:
     - ./dags:/opt/airflow/dags
     - ./include:/opt/airflow/include
@@ -56,7 +57,17 @@ services:
     command: webserver
     ports:
       - "8080:8080"
+    user: "${AIRFLOW_UID:-50000}:0"
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
     restart: always
+    depends_on:
+      postgres-metadata:
+        condition: service_healthy
 
   airflow-scheduler:
     <<: *airflow-common
